@@ -455,6 +455,12 @@ def registro():
 def logout():
     session.pop("usuario", None)
     return redirect("/login")
+    
+from flask import redirect, url_for
+
+@app.route("/")
+def home():
+    return redirect("/login")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
