@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, session
 import sqlite3
 import bcrypt
+import os
 app = Flask(__name__)
 app.secret_key = "super_secret_key_123"  # 🔐 necessário para sessão
 
@@ -27,6 +28,7 @@ def criar_tabelas():
         nome TEXT NOT NULL,
         preco REAL NOT NULL,
         estoque INTEGER DEFAULT 0,
+        imagem TEXT,
         usuario_id INTEGER,
         empresa_id INTEGER
     )
@@ -106,16 +108,25 @@ def add():
         return redirect("/login")
 
     nome = request.form["nome"]
-    preco = float(request.form["preco"])
-    estoque = int(request.form["estoque"])
+    preco = request.form["preco"]
+    estoque = request.form["estoque"]
+
+    imagem = request.files["imagem"]
+
+    nome_imagem = None
+
+    if imagem:
+        nome_imagem = imagem.filename
+        caminho = os.path.join("static/uploads", nome_imagem)
+        imagem.save(caminho)
 
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute("""
-    INSERT INTO produtos (nome, preco, estoque, empresa_id)
-    VALUES (?, ?, ?, ?)
-    """, (nome, preco, estoque, session["empresa_id"]))
+    INSERT INTO produtos (nome, preco, estoque, imagem, empresa_id)
+    VALUES (?, ?, ?, ?, ?)
+    """, (nome, preco, estoque, nome_imagem, session["empresa_id"]))
 
     conn.commit()
     conn.close()
@@ -184,13 +195,54 @@ def dashboard():
 
     conn = conectar()
     cursor = conn.cursor()
+    
+    carrinho = session.get("carrinho", {})
+
+    # Se for lista antiga, converter para dicionário
+    if isinstance(carrinho, list):
+        novo_carrinho = {}
+        for pid in carrinho:
+            pid = str(pid)
+            if pid in novo_carrinho:
+                novo_carrinho[pid] += 1
+            else:
+                novo_carrinho[pid] = 1
+        carrinho = novo_carrinho
+        session["carrinho"] = carrinho
 
     cursor.execute("""
-    SELECT * FROM produtos
+    SELECT id, nome, preco, estoque, imagem
+    FROM produtos
     WHERE empresa_id = ?
     """, (session["empresa_id"],))
     
     produtos = cursor.fetchall()
+    
+    # 🛒 montar carrinho
+    carrinho_produtos = []
+    total_carrinho = 0
+
+    for produto_id, qtd in carrinho.items():
+
+        cursor.execute(
+            "SELECT id, nome, preco FROM produtos WHERE id=?",
+            (produto_id,)
+        )
+
+        produto = cursor.fetchone()
+
+        if produto:
+
+            item = (
+                produto[0],   # id
+                produto[1],   # nome
+                produto[2],   # preco
+                qtd           # quantidade
+            )
+
+            carrinho_produtos.append(item)
+
+            total_carrinho += produto[2] * qtd
 
     cursor.execute("SELECT * FROM vendas ORDER BY data DESC")
     vendas = cursor.fetchall()
@@ -214,8 +266,60 @@ def dashboard():
 
     cursor.execute("SELECT * FROM clientes")
     clientes = cursor.fetchall()
+    
+    carrinho = session.get("carrinho", {})
 
-    conn.close()
+    carrinho_produtos = []
+    total_carrinho = 0
+
+    for produto_id, qtd in carrinho.items():
+
+        cursor.execute(
+            "SELECT id, nome, preco FROM produtos WHERE id=?",
+            (produto_id,)
+        )
+
+    produto = cursor.fetchone()
+
+    if produto:
+
+        produto_lista = (
+            produto[0],   # id
+            produto[1],   # nome
+            produto[2],   # preco
+            qtd           # quantidade
+        )
+
+        carrinho_produtos.append(produto_lista)
+
+        total_carrinho += produto[2] * qtd
+
+    carrinho = session.get("carrinho", {})
+
+    carrinho_produtos = []
+    total_carrinho = 0
+
+    for produto_id, qtd in carrinho.items():
+
+        cursor.execute(
+            "SELECT id, nome, preco FROM produtos WHERE id=?",
+            (produto_id,)
+        )
+
+        produto = cursor.fetchone()
+
+        if produto:
+
+            item = (
+                produto[0],  # id
+                produto[1],  # nome
+                produto[2],  # preco
+                qtd          # quantidade
+            )
+
+            carrinho_produtos.append(item)
+
+            total_carrinho += produto[2] * qtd
 
     return render_template(
         "dashboard.html",
@@ -224,7 +328,9 @@ def dashboard():
         total_geral=total_geral,
         clientes=clientes,
         datas=datas,
-        valores=valores
+        valores=valores,
+        carrinho_produtos=carrinho_produtos,
+        total_carrinho=total_carrinho
     )
    
 @app.route("/cliente/<int:cliente_id>")
@@ -350,6 +456,53 @@ def nova_venda():
     conn.close()
 
     return redirect("/dashboard")
+@app.route("/venda_rapida", methods=["POST"])
+def venda_rapida():
+
+    if "usuario" not in session:
+        return redirect("/login")
+
+    produto_id = request.form["produto_id"]
+    quantidade = int(request.form["quantidade"])
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT nome, preco, estoque
+        FROM produtos
+        WHERE id = ?
+    """, (produto_id,))
+
+    produto = cursor.fetchone()
+
+    if not produto:
+        conn.close()
+        return redirect("/dashboard")
+
+    nome, preco, estoque = produto
+
+    if estoque < quantidade:
+        conn.close()
+        return "Estoque insuficiente"
+
+    novo_estoque = estoque - quantidade
+
+    cursor.execute("""
+        UPDATE produtos
+        SET estoque = ?
+        WHERE id = ?
+    """, (novo_estoque, produto_id))
+
+    cursor.execute("""
+        INSERT INTO vendas (empresa_id, usuario_id, total)
+        VALUES (?, ?, ?)
+    """, (session["empresa_id"], session["usuario_id"], preco))
+
+    conn.commit()
+    conn.close()
+
+    return redirect("/dashboard")
     
 @app.route("/cancelar_venda/<int:venda_id>")
 def cancelar_venda(venda_id):
@@ -397,6 +550,151 @@ def cancelar_venda(venda_id):
         DELETE FROM vendas
         WHERE id = ?
     """, (venda_id,))
+
+    conn.commit()
+    conn.close()
+
+    return redirect("/dashboard")
+
+@app.route("/adicionar_carrinho/<int:produto_id>")
+def adicionar_carrinho(produto_id):
+
+    # Se não existir carrinho OU se for lista antiga
+    if "carrinho" not in session or not isinstance(session["carrinho"], dict):
+        session["carrinho"] = {}
+
+    carrinho = session["carrinho"]
+
+    produto_id = str(produto_id)
+
+    if produto_id in carrinho:
+        carrinho[produto_id] += 1
+    else:
+        carrinho[produto_id] = 1
+
+    session["carrinho"] = carrinho
+
+    return redirect("/dashboard")
+
+@app.route("/diminuir_item/<int:produto_id>")
+def diminuir_item(produto_id):
+
+    carrinho = session.get("carrinho", {})
+
+    produto_id = str(produto_id)
+
+    if produto_id in carrinho:
+
+        carrinho[produto_id] -= 1
+
+        if carrinho[produto_id] <= 0:
+            carrinho.pop(produto_id)
+
+    session["carrinho"] = carrinho
+
+    return redirect("/dashboard")
+
+@app.route("/remover_item/<int:produto_id>")
+def remover_item(produto_id):
+
+    carrinho = session.get("carrinho", {})
+
+    produto_id = str(produto_id)
+
+    if produto_id in carrinho:
+        carrinho.pop(produto_id)
+
+    session["carrinho"] = carrinho
+
+    return redirect("/dashboard")
+    
+@app.route("/editar_produto/<int:id>", methods=["GET", "POST"])
+def editar_produto(id):
+
+    if "usuario" not in session:
+        return redirect("/login")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if request.method == "POST":
+
+        nome = request.form["nome"]
+        preco = request.form["preco"]
+        estoque = request.form["estoque"]
+
+        cursor.execute("""
+        UPDATE produtos
+        SET nome=?, preco=?, estoque=?
+        WHERE id=?
+        """, (nome, preco, estoque, id))
+
+        conn.commit()
+        conn.close()
+
+        return redirect("/dashboard")
+
+    cursor.execute("SELECT * FROM produtos WHERE id=?", (id,))
+    produto = cursor.fetchone()
+
+    conn.close()
+
+    return render_template("editar_produto.html", produto=produto)
+    
+@app.route("/limpar_carrinho")
+def limpar_carrinho():
+    session["carrinho"] = {}
+    return redirect("/dashboard")
+    
+@app.route("/finalizar_venda")
+def finalizar_venda():
+
+    carrinho = session.get("carrinho", [])
+
+    if not carrinho:
+        return redirect("/dashboard")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    total = 0
+
+    for pid in carrinho:
+
+        cursor.execute("SELECT preco, estoque FROM produtos WHERE id=?", (pid,))
+        produto = cursor.fetchone()
+
+        preco, estoque = produto
+
+        cursor.execute(
+            "UPDATE produtos SET estoque=? WHERE id=?",
+            (estoque - 1, pid)
+        )
+
+        total += preco
+
+    cursor.execute("""
+    INSERT INTO vendas (empresa_id, usuario_id, total)
+    VALUES (?, ?, ?)
+    """, (session["empresa_id"], session["usuario_id"], total))
+
+    conn.commit()
+    conn.close()
+
+    session["carrinho"] = []
+
+    return redirect("/dashboard")
+    
+@app.route("/excluir_produto/<int:id>")
+def excluir_produto(id):
+
+    if "usuario" not in session:
+        return redirect("/login")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM produtos WHERE id=?", (id,))
 
     conn.commit()
     conn.close()

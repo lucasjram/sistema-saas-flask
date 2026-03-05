@@ -19,8 +19,7 @@
     <div class="card shadow p-4 mb-4">
         <h4>🛒 Nova Venda</h4>
 
-        <form method="POST" action="/venda/nova">
-        <div class="mb-3">
+                <div class="mb-3">
         <label>Cliente:</label>
         <select name="cliente_id" class="form-select">
             <option value="">Venda sem cliente</option>
@@ -31,43 +30,118 @@
             {% endfor %}
         </select>
     </div>
-            <table class="table table-bordered">
-                <thead>
-                    <tr>
-                        <th>Selecionar</th>
-                        <th>Produto</th>
-                        <th>Preço</th>
-                        <th>Estoque</th>
-                        <th>Quantidade</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for produto in produtos %}
-                    <tr>
-                        <td>
-                            <input type="checkbox" name="produto_id" value="{{ produto[0] }}">
-                        </td>
-                        <td>{{ produto[1] }}</td>
-                        <td>R$ {{ produto[2] }}</td>
-                        <td>
-                            {% if produto[3] <= 3 %}
-                                <span class="badge bg-danger">{{ produto[3] }}</span>
-                            {% else %}
-                                {{ produto[3] }}
-                            {% endif %}
-                        </td>
-                        <td>
-                            <input type="number"
-                                   name="quantidade_{{ produto[0] }}"
-                                   value="1"
-                                   min="1"
-                                   class="form-control">
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+    
+    <div class="row">
 
+    <!-- PRODUTOS -->
+    <div class="col-md-9">
+
+    <div class="card shadow p-4 mb-4">
+    
+    <div class="mb-3">
+    <input type="text"
+           id="buscarProduto"
+           class="form-control"
+           placeholder="🔎 Buscar produto...">
+    </div>
+    
+    <h4>🛍 Produtos</h4>
+
+    <div class="row">
+
+    {% for produto in produtos %}
+
+    <div class="col-md-2 mb-3">
+
+    <a href="/adicionar_carrinho/{{ produto[0] }}" style="text-decoration:none; color:inherit;">
+
+    <div class="card h-100 shadow-sm">
+
+    {% if produto[4] %}
+    <img src="{{ url_for('static', filename='uploads/' + produto[4]) }}"
+    class="card-img-top"
+    style="height:90px; object-fit:cover;">
+    {% endif %}
+
+    <div class="card-body text-center p-1">
+
+    <h6>{{ produto[1] }}</h6>
+
+    <p class="text-success fw-bold">
+    R$ {{ produto[2] }}
+    </p>
+
+    <p style="font-size:12px;">
+    Estoque: {{ produto[3] }}
+    </p>
+
+    </div>
+
+    </div>
+
+    </a>
+
+    </div>
+
+    {% endfor %}
+
+    </div>
+
+    </div>
+
+    </div>
+
+
+    <!-- CARRINHO -->
+    <div class="col-md-3">
+
+    <div class="card shadow p-3">
+    <h5>🛒 Carrinho</h5>
+
+    <ul class="list-group mb-3">
+
+    {% for item in carrinho_produtos %}
+
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+
+    <div>
+
+    <b>{{ item[1] }}</b><br>
+
+    <a href="/diminuir_item/{{ item[0] }}" class="btn btn-sm btn-secondary">-</a>
+
+    {{ item[3] }}
+
+    <a href="/adicionar_carrinho/{{ item[0] }}" class="btn btn-sm btn-secondary">+</a>
+
+    </div>
+
+    <div>
+
+    R$ {{ item[2] * item[3] }}
+
+    <a href="/remover_item/{{ item[0] }}" class="btn btn-sm btn-danger">❌</a>
+
+    </div>
+
+    </li>
+
+    {% endfor %}
+
+    </ul>
+
+    <p><b>Total:</b> R$ {{ total_carrinho }}</p>
+
+    <a href="/finalizar_venda" class="btn btn-success w-100">
+    Finalizar Venda
+    </a>
+
+    </div>
+
+    </div>
+
+    </div>
+            
             <button class="btn btn-success">Finalizar Venda</button>
         </form>
     </div>
@@ -91,7 +165,10 @@
     <!-- ADICIONAR PRODUTO -->
     <div class="card shadow p-4 mb-4">
         <h4>Adicionar Produto</h4>
-        <form method="POST" action="/add" class="row g-3">
+        <form method="POST" action="/add" enctype="multipart/form-data" class="row g-3"> 
+            <div class="col-md-3">
+                <input type="file" name="imagem" class="form-control">
+            </div>
             <div class="col-md-4">
                 <input type="text" name="nome" class="form-control" placeholder="Nome do produto" required>
             </div>
@@ -105,6 +182,16 @@
                 <button class="btn btn-primary w-100">Adicionar</button>
             </div>
         </form>
+    </div>
+    
+       </ul>
+
+    <p class="mt-2"><b>Total:</b> R$ {{ total_carrinho }}</p>
+
+    <a href="/finalizar_venda" class="btn btn-success w-100">
+    Finalizar Venda
+    </a>
+
     </div>
     
     <div class="card shadow p-4 mb-4">
@@ -186,6 +273,30 @@
             }
         }
     });
+</script>
+
+<script>
+
+document.getElementById("buscarProduto").addEventListener("keyup", function() {
+
+    let busca = this.value.toLowerCase()
+
+    let produtos = document.querySelectorAll(".produto-card")
+
+    produtos.forEach(function(produto){
+
+        let nome = produto.getAttribute("data-nome")
+
+        if(nome.includes(busca)){
+            produto.style.display = "block"
+        }else{
+            produto.style.display = "none"
+        }
+
+    })
+
+})
+
 </script>
 
 </body>
